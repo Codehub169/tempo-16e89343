@@ -142,21 +142,7 @@ def process_videos(urls):
         # Display download buttons in their respective containers
         for item in st.session_state.download_links:
             item["container"].download_button(
-                label=f"⬇️ Download {item['filename']}",
-                data=item['data'],
-                file_name=item['filename'],
-                mime="audio/mpeg"
-            )
-            item["container"].caption(f"Original URL: {item['url']}")
-
-# --- Streamlit App UI --- 
-st.set_page_config(layout="wide", page_title="YouTube to MP3 Converter", theme="light")
-
-# Custom CSS (incorporating Design System)
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Poppins:wght@600&display=swap');
-    body, .stApp {
+                label=f"ody, .stApp {
         font-family: 'Inter', sans-serif;
         /* color: #333333; */ /* Default theme will handle text color */
         /* background-color: #FFFFFF; */ /* Default theme will handle background */
@@ -224,32 +210,75 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("▶️ Tune Teleporter - YouTube to MP3 Converter")
-st.markdown("Convert YouTube videos to MP3 audio files. Paste video links below (one per line) and click convert.")
+st.title("ody, .stApp {
+        font-family: 'Inter', sans-serif;
+        /* color: #333333; */ /* Default theme will handle text color */
+        /* background-color: #FFFFFF; */ /* Default theme will handle background */
+    }
+    h1, h2, h3 {
+        font-family: 'Poppins', sans-serif;
+        /* color: #333333; */ /* Default theme */
+    }
+    .stButton>button {
+        background-color: #007BFF; /* Accent Bright Blue */
+        color: white;
+        border: none;
+        border-radius: 5px;
+        padding: 0.6em 1.2em;
+        font-family: 'Inter', sans-serif;
+        font-weight: bold;
+    }
+    .stButton>button:hover {
+        background-color: #0056b3; /* Darker blue on hover */
+    }
+    .stTextArea textarea {
+        background-color: #F0F0F0; /* Secondary Light Gray */
+        border: 1px solid #CCCCCC; /* Neutral border */
+        border-radius: 5px;
+        min-height: 150px;
+        font-family: 'Inter', sans-serif;
+    }
+    /* Alert styling for success, error, info, warning */
+    /* Light theme might handle these well, but custom styles can ensure consistency */
+    .stAlert[data-baseweb="alert"] {
+        border-radius: 5px;
+        font-family: 'Inter', sans-serif;
+    }
+    .stAlert[data-baseweb="alert"] p {
+         font-family: 'Inter', sans-serif; /* Ensure p inside alert also uses Inter */
+    }
+    /* Success: Plan: #28A745 (Green) */
+    .stAlert[data-baseweb="alert"][data-testid="stSuccess"] {
+        background-color: #D4EDDA;
+        color: #155724;
+        border: 1px solid #C3E6CB;
+    }
+    /* Error: Plan: #DC3545 (Red) */
+    .stAlert[data-baseweb="alert"][data-testid="stError"] {
+        background-color: #F8D7DA;
+        color: #721C24;
+        border: 1px solid #F5C6CB;
+    }
+    /* Info: (Derived) */
+    .stAlert[data-baseweb="alert"][data-testid="stInfo"] {
+        background-color: #D1ECF1;
+        color: #0C5460;
+        border: 1px solid #BEE5EB;
+    }
+    /* Warning: Plan: #FFC107 (Yellow) */
+    .stAlert[data-baseweb="alert"][data-testid="stWarning"] {
+        background-color: #FFF3CD;
+        color: #856404;
+        border: 1px solid #FFEEBA;
+    }
+    /* Progress bar styling */
+    .stProgress > div > div > div > div {
+        background-color: #007BFF; /* Accent Bright Blue for progress bar */
+    }
+</style>
+""", unsafe_allow_html=True)
 
-create_temp_dir() # Ensure temp directory exists on app start/rerun
-
-urls_input = st.text_area("YouTube Video URL(s):", height=150, placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ\nhttps://www.youtube.com/watch?v=anotherVideoID")
-
-# Initialize session state variables if they don't exist
-if 'processing_done' not in st.session_state:
-    st.session_state.processing_done = False
-if 'download_links' not in st.session_state:
-    st.session_state.download_links = []
-
-if st.button("🔗 Convert to MP3", key="convert_button"):
-    # Clear previous results shown on page (placeholders will be reused)
-    # The process_videos function will now populate new results within its own containers.
-    st.session_state.download_links = [] # Reset links
-    st.session_state.processing_done = False # Reset flag
-    process_videos(urls_input)
-
-# Note: Download buttons are now added dynamically within process_videos
-# to their respective containers. This avoids issues with Streamlit's rerun behavior
-# and stale button states if they were all displayed at the end based on session_state alone.
-
-st.markdown("""
----
+st.title("
 <p style='text-align: center; color: #888888; font-size: 0.9em;'>
     Built with Streamlit & yt-dlp. For personal, non-commercial use only. 
     Respect copyright laws.
