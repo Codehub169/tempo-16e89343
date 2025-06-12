@@ -265,4 +265,4 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("\u25b6\ufe0f\ud83c\udfb5 YouTube to MP3 Converter") # Play icon, musical notes icon
-st.markdown(
+st.markdown("Enter one or more YouTube video URLs below (one per line) to convert them to MP3.")
