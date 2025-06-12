@@ -98,7 +98,9 @@ def process_videos(urls):
                 
                 final_mp3_path = processed_info.get('filepath')
                 if not final_mp3_path and processed_info.get('ext') == 'mp3': # Fallback for some cases
-                    final_mp3_path = ydl.prepare_filename(processed_info).replace(processed_info['ext'], 'mp3')
+                    # Construct the expected filename if 'filepath' is missing after postprocessing
+                    temp_filename = ydl.prepare_filename(processed_info)
+                    final_mp3_path = os.path.splitext(temp_filename)[0] + '.mp3'
 
                 if final_mp3_path and os.path.exists(final_mp3_path) and final_mp3_path.endswith(".mp3"):
                     actual_filename_for_download = os.path.basename(final_mp3_path)
@@ -140,7 +142,7 @@ def process_videos(urls):
         # Display download buttons in their respective containers
         for item in st.session_state.download_links:
             item["container"].download_button(
-                label=f"omagnetic_download Download {item['filename']}",
+                label=f"⬇️ Download {item['filename']}",
                 data=item['data'],
                 file_name=item['filename'],
                 mime="audio/mpeg"
@@ -222,7 +224,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("	eleporterightarrow_button		 Tune YouTube to MP3 Converter")
+st.title("▶️ Tune Teleporter - YouTube to MP3 Converter")
 st.markdown("Convert YouTube videos to MP3 audio files. Paste video links below (one per line) and click convert.")
 
 create_temp_dir() # Ensure temp directory exists on app start/rerun
@@ -235,7 +237,7 @@ if 'processing_done' not in st.session_state:
 if 'download_links' not in st.session_state:
     st.session_state.download_links = []
 
-if st.button("			 Link Convert to MP3", key="convert_button"):
+if st.button("🔗 Convert to MP3", key="convert_button"):
     # Clear previous results shown on page (placeholders will be reused)
     # The process_videos function will now populate new results within its own containers.
     st.session_state.download_links = [] # Reset links
