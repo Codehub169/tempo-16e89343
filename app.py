@@ -2,146 +2,193 @@ import streamlit as st
 import yt_dlp
 import os
 import shutil
+import tempfile
+import re
 
-# Define output directory
-TEMP_AUDIO_DIR = "temp_audio"
+# Define base output directory
+BASE_TEMP_AUDIO_DIR = "temp_audio_batches"
 
-def create_temp_dir():
-    """Ensures the temporary directory for audio files exists."""
-    if not os.path.exists(TEMP_AUDIO_DIR):
-        os.makedirs(TEMP_AUDIO_DIR)
+# Regex for YouTube URL validation
+# Matches standard video URLs, shortened youtu.be URLs, and allows for extra parameters (timestamps, playlists).
+YOUTUBE_URL_PATTERN = re.compile(
+    r'^(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]{11})([\[\]\(\)\w\s=&%#@!?\+\-_.:;\'"]*)?$'
+)
 
-def progress_hook(d, progress_bar, status_placeholder, video_title):
+def ensure_base_temp_dir():
+    """Ensures the base temporary directory for all processing batches exists."""
+    if not os.path.exists(BASE_TEMP_AUDIO_DIR):
+        try:
+            os.makedirs(BASE_TEMP_AUDIO_DIR)
+        except OSError as e:
+            st.error(f"Fatal Error: Could not create base temporary directory {BASE_TEMP_AUDIO_DIR}: {e}. Please check permissions.")
+            st.stop()
+
+def progress_hook(d, hook_data):
     """Hook for yt-dlp to update Streamlit UI on progress."""
+    progress_bar = hook_data['progress_bar']
+    status_placeholder = hook_data['status_placeholder']
+    video_title = hook_data['video_title']
+
     if d['status'] == 'downloading':
         total_bytes_str = d.get('_total_bytes_str', 'N/A')
         speed_str = d.get('_speed_str', 'N/A')
         percent_str = d.get('_percent_str', '0%')
-        # Extract numeric percentage for progress bar
         try:
             percentage = float(percent_str.replace('%', ''))
         except ValueError:
             percentage = 0
         
-        # Scale download progress (0-100%) to a part of the overall progress (e.g., 10-80%)
-        # Initial 10% for fetching info, final 20% for conversion buffering.
         current_progress = 10 + int(percentage * 0.7) 
         progress_bar.progress(current_progress)
         status_placeholder.info(f"Downloading '{video_title}': {percent_str} of {total_bytes_str} at {speed_str}")
     elif d['status'] == 'finished':
-        progress_bar.progress(85) # Download finished, moving to conversion
+        progress_bar.progress(85)
         status_placeholder.info(f"Download of '{video_title}' complete. Converting to MP3...")
     elif d['status'] == 'error':
-        status_placeholder.warning(f"Error reported by yt-dlp during processing of '{video_title}'.")
+        # This message might be generic; more specific errors are caught in the main processing loop.
+        status_placeholder.warning(f"A problem occurred during yt-dlp processing of '{video_title}'. Waiting for final status...")
 
 def process_videos(urls):
     """Processes a list of URLs: downloads, converts, and prepares for download."""
-    st.session_state.download_links = []  # Reset for new batch
+    st.session_state.download_links = []
     st.session_state.processing_done = False
     
     if not urls:
         st.warning("Please enter at least one YouTube URL.")
         return
 
-    url_list = [url.strip() for url in urls.splitlines() if url.strip()]
-    if not url_list:
-        st.warning("No valid URLs found. Please check your input.")
+    raw_url_list = [url.strip() for url in urls.splitlines() if url.strip()]
+    if not raw_url_list:
+        st.warning("No URLs provided. Please check your input.")
         return
 
-    # Container for all download sections
     results_container = st.container()
-
-    for i, url in enumerate(url_list):
-        # Create a new sub-container for each video's status and download button
-        video_container = results_container.container()
-        video_container.markdown(f"---")
-        # Placeholders for dynamic content for this specific video
-        status_placeholder = video_container.empty()
-        progress_bar = video_container.progress(0)
-        
-        status_placeholder.info(f"Preparing to process URL: {url}")
-        video_title = "Unknown Video" # Default title
-
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',  # Standard quality
-            }],
-            'outtmpl': os.path.join(TEMP_AUDIO_DIR, '%(title)s.%(ext)s'),
-            'noplaylist': True, # Process only single video if playlist URL is given
-            'quiet': True,      # Suppress yt-dlp console output
-            'no_warnings': True,
-            # Pass placeholders to progress_hook through a lambda
-            'progress_hooks': [lambda d: progress_hook(d, progress_bar, status_placeholder, video_title)],
-            'ffmpeg_location': '/usr/bin/ffmpeg' # Explicit path, good for containers
-        }
-
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                status_placeholder.info(f"Fetching video information for {url}...")
-                progress_bar.progress(5)
-                
-                try:
-                    initial_info = ydl.extract_info(url, download=False)
-                    video_title = initial_info.get('title', f'Video {i+1}') # Use actual title or a placeholder
-                except Exception as info_e:
-                    status_placeholder.error(f"Failed to fetch initial info for {url}: {str(info_e)[:200]}")
-                    progress_bar.progress(100) # Mark as done with error
-                    continue # Skip this URL
-
-                status_placeholder.info(f"Processing: '{video_title}'")
-                progress_bar.progress(10)
-                
-                # This call will download, convert, and return info about the *final* file.
-                processed_info = ydl.extract_info(url, download=True)
-                
-                final_mp3_path = processed_info.get('filepath')
-
-                if final_mp3_path and os.path.exists(final_mp3_path) and final_mp3_path.endswith(".mp3"):
-                    actual_filename_for_download = os.path.basename(final_mp3_path)
-                    progress_bar.progress(95)
-                    status_placeholder.success(f"Successfully converted: '{video_title}' (as {actual_filename_for_download})")
-
-                    with open(final_mp3_path, "rb") as fp:
-                        file_bytes = fp.read()
-                    
-                    st.session_state.download_links.append({
-                        "title": video_title,
-                        "filename": actual_filename_for_download,
-                        "data": file_bytes,
-                        "url": url,
-                        "container": video_container # Store container to place download button later
-                    })
-                    os.remove(final_mp3_path) # Clean up the file
-                    progress_bar.progress(100)
-                else:
-                    error_detail = f"(Reported path: {final_mp3_path}, Exists: {os.path.exists(final_mp3_path) if final_mp3_path else 'N/A'}, Ends with .mp3: {final_mp3_path.endswith('.mp3') if final_mp3_path else 'N/A'})"
-                    status_placeholder.error(f"Conversion failed or MP3 file not found for '{video_title}'. {error_detail}")
-                    progress_bar.progress(100) # Mark as done with error
-
-        except yt_dlp.utils.DownloadError as e:
-            status_placeholder.error(f"Download/Conversion error for '{video_title}': {str(e)[:300]}") # Limit error message length
-            progress_bar.progress(100)
-        except Exception as e:
-            status_placeholder.error(f"An unexpected error occurred with '{video_title}': {str(e)[:300]}")
-            progress_bar.progress(100)
     
-    st.session_state.processing_done = True
-    if not st.session_state.download_links:
-        results_container.error("No videos could be processed successfully.")
-    else:
-        results_container.success("All selected videos processed! See download links above each status message.")
-        # Display download buttons in their respective containers
-        for item in st.session_state.download_links:
-            item["container"].download_button(
-                label=f"📥 Download {item['filename']}",
-                data=item['data'],
-                file_name=item['filename'],
-                mime="audio/mpeg"
-            )
-            item["container"].caption(f"Original URL: {item['url']}")
+    valid_urls_to_process = []
+    for u in raw_url_list:
+        if YOUTUBE_URL_PATTERN.match(u):
+            valid_urls_to_process.append(u)
+        else:
+            results_container.warning(f"Skipped: '{u}' does not appear to be a valid YouTube video URL.")
+            
+    if not valid_urls_to_process:
+        results_container.error("No valid YouTube URLs found among the provided inputs.")
+        return
+
+    ensure_base_temp_dir() # Ensure base directory is available
+    
+    current_batch_temp_dir = None
+    try:
+        current_batch_temp_dir = tempfile.mkdtemp(dir=BASE_TEMP_AUDIO_DIR)
+
+        for i, url in enumerate(valid_urls_to_process):
+            video_container = results_container.container()
+            video_container.markdown("---")
+            status_placeholder = video_container.empty()
+            progress_bar = video_container.progress(0)
+            
+            status_placeholder.info(f"Preparing to process URL: {url}")
+
+            hook_data = {
+                'progress_bar': progress_bar,
+                'status_placeholder': status_placeholder,
+                'video_title': "Unknown Video"
+            }
+
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+                'outtmpl': os.path.join(current_batch_temp_dir, '%(title)s.%(ext)s'),
+                'noplaylist': True,
+                'quiet': True,
+                'no_warnings': True,
+                'progress_hooks': [lambda d: progress_hook(d, hook_data)],
+                # 'ffmpeg_location' is removed; relying on ffmpeg in PATH (installed by startup.sh)
+            }
+
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    status_placeholder.info(f"Fetching video information for {url}...")
+                    progress_bar.progress(5)
+                    
+                    # Use a fallback title in case fetching info fails or title is missing
+                    # This title is updated in hook_data for the progress hook
+                    fetched_video_title = f"Video from {url.split('v=')[-1][:11] if 'v=' in url else 'youtu.be/' + url.split('/')[-1][:11]}"
+
+                    try:
+                        initial_info = ydl.extract_info(url, download=False)
+                        fetched_video_title = initial_info.get('title', fetched_video_title)
+                    except Exception as info_e:
+                        status_placeholder.warning(f"Could not pre-fetch video info for {url}: {str(info_e)[:100]}. Proceeding with download attempt.")
+                        # Not fatal, ydl.extract_info(download=True) will get it or fail.
+                    
+                    hook_data['video_title'] = fetched_video_title # Update title for progress hook
+
+                    status_placeholder.info(f"Processing: '{hook_data['video_title']}'")
+                    progress_bar.progress(10)
+                    
+                    processed_info = ydl.extract_info(url, download=True)
+                    # Update title again from processed_info if it's more accurate (e.g., after redirects)
+                    hook_data['video_title'] = processed_info.get('title', hook_data['video_title'])
+                    final_mp3_path = processed_info.get('filepath')
+
+                    if final_mp3_path and os.path.exists(final_mp3_path) and final_mp3_path.lower().endswith(".mp3"):
+                        actual_filename_for_download = os.path.basename(final_mp3_path)
+                        progress_bar.progress(95)
+                        status_placeholder.success(f"Successfully converted: '{hook_data['video_title']}' (as {actual_filename_for_download})")
+
+                        with open(final_mp3_path, "rb") as fp:
+                            file_bytes = fp.read()
+                        
+                        st.session_state.download_links.append({
+                            "title": hook_data['video_title'],
+                            "filename": actual_filename_for_download,
+                            "data": file_bytes,
+                            "url": url,
+                            "container": video_container
+                        })
+                        os.remove(final_mp3_path)
+                        progress_bar.progress(100)
+                    else:
+                        error_detail = f"(Reported path: {final_mp3_path}, Exists: {os.path.exists(final_mp3_path) if final_mp3_path else 'N/A'}, Ends with .mp3: {final_mp3_path.lower().endswith('.mp3') if final_mp3_path else 'N/A'})"
+                        status_placeholder.error(f"Conversion failed or MP3 file not found for '{hook_data['video_title']}'. {error_detail}")
+                        progress_bar.progress(100)
+
+            except yt_dlp.utils.DownloadError as e:
+                err_title = hook_data['video_title'] if hook_data['video_title'] != "Unknown Video" else url
+                status_placeholder.error(f"Download/Conversion error for '{err_title}': {str(e)[:300]}")
+                progress_bar.progress(100)
+            except Exception as e:
+                err_title = hook_data['video_title'] if hook_data['video_title'] != "Unknown Video" else url
+                status_placeholder.error(f"An unexpected error occurred with '{err_title}': {str(e)[:300]}")
+                progress_bar.progress(100)
+        
+        st.session_state.processing_done = True
+        if not st.session_state.download_links:
+            results_container.error("No videos could be processed successfully from the valid URLs.")
+        else:
+            results_container.success("Processing complete! Download links are available above their respective status messages.")
+            for item in st.session_state.download_links:
+                item["container"].download_button(
+                    label=f"\ud83d\udce5 Download {item['filename']}", # Inbox tray icon
+                    data=item['data'],
+                    file_name=item['filename'],
+                    mime="audio/mpeg"
+                )
+                item["container"].caption(f"Original URL: {item['url']}")
+                
+    except Exception as batch_e:
+        st.error(f"A critical error occurred during batch processing: {batch_e}")
+    finally:
+        if current_batch_temp_dir and os.path.exists(current_batch_temp_dir):
+            try:
+                shutil.rmtree(current_batch_temp_dir)
+            except Exception as e:
+                st.warning(f"Could not clean up temporary batch directory {current_batch_temp_dir}: {e}. Manual cleanup may be required.")
 
 # --- Streamlit App UI --- 
 st.set_page_config(layout="wide", page_title="YouTube to MP3 Converter")
@@ -217,34 +264,5 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("▶️🎵 YouTube to MP3 Converter")
-st.markdown("Convert YouTube videos to MP3 audio files. Paste video links below (one per line) and click convert.")
-
-create_temp_dir() # Ensure temp directory exists on app start/rerun
-
-urls_input = st.text_area("YouTube Video URL(s):", height=150, placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ\nhttps://www.youtube.com/watch?v=anotherVideoID")
-
-# Initialize session state variables if they don't exist
-if 'processing_done' not in st.session_state:
-    st.session_state.processing_done = False
-if 'download_links' not in st.session_state:
-    st.session_state.download_links = []
-
-if st.button("🔗 Convert to MP3", key="convert_button"):
-    # Clear previous results shown on page (placeholders will be reused)
-    # The process_videos function will now populate new results within its own containers.
-    st.session_state.download_links = [] # Reset links
-    st.session_state.processing_done = False # Reset flag
-    process_videos(urls_input)
-
-# Note: Download buttons are now added dynamically within process_videos
-# to their respective containers. This avoids issues with Streamlit's rerun behavior
-# and stale button states if they were all displayed at the end based on session_state alone.
-
-st.markdown("""
----
-<p style='text-align: center; color: #888888; font-size: 0.9em;'>
-    Built with Streamlit & yt-dlp. For personal, non-commercial use only. 
-    Respect copyright laws.
-</p>
-""", unsafe_allow_html=True)
+st.title("\u25b6\ufe0f\ud83c\udfb5 YouTube to MP3 Converter") # Play icon, musical notes icon
+st.markdown(
